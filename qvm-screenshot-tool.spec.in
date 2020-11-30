@@ -4,10 +4,14 @@ Release: 0%{?dist}
 Summary: Take screenshot in Qubes Dom0
 
 License: MIT
-URL:     https://github.com/evadogstar/qvm-screenshot-tool
+URL:     https://github.com/QubesOS-contrib/qvm-screenshot-tool
 Source0: %{name}-%{version}.tar.gz
 
+%if 0%{?fedora} == 25
 Requires: scrot
+%else
+Requires: maim
+%endif
 Requires: zenity
 
 %description
@@ -20,7 +24,7 @@ zenity at dom0 and at AppVM (already exists by default at fedora and dom0)
 
 
 %install
-make install DESTDIR=$RPM_BUILD_ROOT
+%make_install
 
 
 %files
