@@ -1,12 +1,11 @@
 #!/bin/bash
 
 # Take screenshot in Qubes Dom0, auto copy to AppVM, upload to imgurl service
-# Dependencies: scrot at dom0 (sudo qubes-dom0-update scrot)
-# zenity at dom0 and at AppVM (already exists by default at fedora and dom0)
 
-# (c) EvaDogStar 2017
+# Copyright (C) 2017-2020 EvaDogStar <evastar@protonmail.com>
 
-version="0.7beta"
+program="$(basename "$0")"
+version="@VERSION@"
 DOM0_SHOTS_DIR=$HOME/Pictures
 # get the Pictures path in the VM
 APPVM_SHOTS_DIR="\$(xdg-user-dir PICTURES)"
@@ -117,14 +116,17 @@ open_imgulr_upload_dialog_at_destination_appvm()
     qvm-run "$appvm" "zenity --text-info --width=500 --height=180 --modal --filename=\"$IMGURL_LOG\" --text Ready"
 }
 
-checkscrot()
-{
-    command -v scrot >/dev/null || {
-        scrotnomes="[EXIT] no \"scrot\" tool at dom0 installed use: \n\nsudo qubes-dom0-update scrot \n\ncommand to add it first"
-        printf "%s\n" "$scrotnomes"
-        zenity --info --modal --text "$scrotnomes" &>/dev/null
-        exit 1
-    }
+# check dependencies
+command -v zenity >/dev/null || {
+    warn="[FATAL] \"zenity\" tool not found."
+    printf "%s\n" "$warn"
+    exit 1
+}
+
+command -v display >/dev/null || {
+    warn="[EXIT] \"ImageMagic\" (display) not found."
+    zenity --info --modal --text "$warn" &>/dev/null
+    exit 1
 }
 
 start_ksnapshoot()
@@ -149,22 +151,6 @@ start_ksnapshoot()
     qdbus "$program" /KSnapshot exit
 }
 
-
-# check dependencies
-command -v zenity >/dev/null || {
-    warn="[FATAL] no \"zenity\" tool at dom0 installeted use: \n\nsudo qubes-dom0-update zenity command to add it first"
-    printf "%s\n" "$warn"
-    exit 1
-}
-
-command -v display >/dev/null || {
-    warn="[EXIT] no \"ImageMagic\" (display) package at dom0 installeted use: \n\nsudo qubes-dom0-update ImageMagic \n\ncommand to add it first"
-    printf "%s\n" "$scrotnomes"
-    zenity --info --modal --text "$warn" &>/dev/null
-    exit 1
-}
-
-program="$(basename "$0")"
 shotslist=""
 
 mkdir -p "$DOM0_SHOTS_DIR" ||exit 1
@@ -268,20 +254,41 @@ error_fail() {
     zenity --info --modal --text "Something has gone wrong and screenshot has NOT been saved at dom0"
 }
 
+do_screenshot() {
+    local selection="$1"
+    local destination="$2"
+
+    if [ -n "$(command -v scrot 2> /dev/null)" ]; then
+        if [ "$selection" == "window" ]; then
+            scrot -s -b "$destination"
+        elif [ "$selection" == "fullscreen" ]; then
+            scrot -b "$destination"
+        fi
+    elif [ -n "$(command -v maim 2> /dev/null)" ]; then
+        if [ "$selection" == "window" ]; then
+            maim -s -u "$destination"
+        elif [ "$selection" == "fullscreen" ]; then
+            maim -u -o "$destination"
+        fi
+    else
+        msg="[EXIT] \"scrot\" or \"maim\" tools not found."
+        zenity --info --modal --text "$msg" &>/dev/null
+        exit 1
+    fi
+}
+
 trap error_fail ERR
 
-if [ X"$ans" == X"Ksnapshot" ]; then
+if [ "$ans" == "Ksnapshot" ]; then
     printf "[+] starting ksnapshot..."
     start_ksnapshoot 4 "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ X"$ans" == X"Region or Window" ]; then
-    checkscrot || exit 1
+elif [ "$ans" == "Region or Window" ]; then
     echo "[+] capturing window, click on it to select"
-    scrot -s -b "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ X"$ans" == X"Fullscreen" ]; then
-    checkscrot || exit 1
+    do_screenshot window "$DOM0_SHOTS_DIR/$shotname" || exit 1
+elif [ "$ans" == "Fullscreen" ]; then
     echo "[+] capturing fullscreen desktop"
-    scrot -b "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ X"$ans" == X"Open last dialog" ]; then
+    do_screenshot fullscreen "$DOM0_SHOTS_DIR/$shotname" || exit 1
+elif [ "$ans" == "Open last dialog" ]; then
     echo "[+] opening last dialog at AppVM with uploaded urls if exists"
     read_last_action_config || exit 1
     exit 1
