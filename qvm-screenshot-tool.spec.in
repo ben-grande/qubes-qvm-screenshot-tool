@@ -1,6 +1,6 @@
 Name:    qvm-screenshot-tool
 Version: @VERSION@
-Release: 0%{?dist}
+Release: @REL@%{?dist}
 Summary: Take screenshot in Qubes Dom0
 
 License: MIT
