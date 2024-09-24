@@ -1,436 +1,343 @@
-#!/bin/bash
+#!/bin/sh
+#
+# SPDX-FileCopyrightText: 2017 - 2020 EvaDogStar <evastar@protonmail.com>
+# SPDX-FileCopyrightText: 2024 Benjamin Grande M. S. <ben.grande.b@gmail.com>
+#
+# SPDX-License-Identifier: MIT
+#
+# Take screenshot in Qubes GuiVM and copy/move to qube.
+#
+# Dialog tools: kdialog, zenity
+# Shot tools: spectacle, xfce4-screenshooter, maim, scrot
 
-# Take screenshot in Qubes Dom0, auto copy to AppVM, upload to imgurl service
+set -eu
 
-# Copyright (C) 2017-2020 EvaDogStar <evastar@protonmail.com>
+take_screenshot() {
+  screenshot_type="${1}"
 
-program="$(basename "$0")"
-version="@VERSION@"
-DOM0_SHOTS_DIR=$HOME/Pictures
-# get the Pictures path in the VM
-APPVM_SHOTS_DIR="\$(xdg-user-dir PICTURES)"
-# get home dir in the VM
-IMGURL_LOG="\$HOME/imgurl.log"
-LAST_ACTION_LOG_CONFIG="$HOME/.config/qvm-screenshot-lastaction.cfg"
-
-rightdom0dir=$(xdg-user-dir PICTURES)
-if [[ "$rightdom0dir" =~ ^/home/user* ]]; then
-    DOM0_SHOTS_DIR=$rightdom0dir
-fi
-
-TEMPEDITORFILE="$DOM0_SHOTS_DIR/0000-SAVE-EDITED-SHOT-HERE-TO-PROCESS.png"
-
-UPLOADHELPER=$(cat <<'EOFFILE'
-#!/bin/bash
-# Eva Dog Star imgurl uploader
-imgur_anon_id="ea6c0ef2987808e"
-# check arguments
-if [ $# == 0 ]; then
-    echo "[ERROR] No file specified" >&2
-    exit 16
-fi
-    # check curl is available
-    type curl >/dev/null 2>/dev/null || {
-    echo "[ERROR] Couln't find curl, which is required at AppVM." >&2
-    exit 17
-}
-file="$1"
-logfile="$2"
-# check file exists
-if [ ! -f "$file" ]; then
-    echo "[ERROR] file '$file' doesn't exist at AppVM" >&2
-    exit 18
-fi
-response="$(curl --compressed --connect-timeout "7" -m "250" --retry "1" -fsSL --stderr - -H "Authorization: Client-ID ${imgur_anon_id}" -F "image=@$file" https://api.imgur.com/3/image)"
-if egrep -q '"success":\s*true' <<<"${response}"; then
-    img_id="$(egrep -o '"id":\s*"[^"]+"' <<<"${response}" | cut -d "\"" -f 4)"
-    img_ext="$(egrep -o '"link":\s*"[^"]+"' <<<"${response}" | cut -d "\"" -f 4 | rev | cut -d "." -f 1 | rev)" # "link" itself has ugly '\/' escaping and no https!
-    del_id="$(egrep -o '"deletehash":\s*"[^"]+"' <<<"${response}" | cut -d "\"" -f 4)"
-    imgurl="https://i.imgur.com/${img_id}.${img_ext}"
-    imgdeleteurl="https://imgur.com/delete/${del_id}"
-    echo -e "Image url:\n$imgurl\n\nDelete image url: \n$imgdeleteurl\n\n \nQubes Screenshot Tool - EvaDogStar 2016" > $logfile
-    echo "[success] imgurl: $imgurl" >&2
-    echo "[success] delete url: $imgdeleteurl" >&2
-else # upload failed
-    err_msg="$(egrep -o '"error":\s*"[^"]+"' <<<"${response}" | cut -d "\"" -f 4)"
-    test -z "${err_msg}" && err_msg="${response}"
-    echo "[ERROR] $err_msg"
-    echo "[RESPONSE] $response"
-    echo -e "Error: \n\n$err_msg \n\nImgurl Server response: \n\n$response\n\n\n \nQubes Screenshot Tool - EvaDogStar 2016" > $logfile
-    #echo ${err_msg}
-fi
-(which xclip &>/dev/null && echo -n "$imgurl" | xclip -selection clipboard ) || echo "[NOTE] no xclip at AppVM"
-
-EOFFILE
-)
-
-print_help()
-{
-    echo "qvm-screenshot-tool version $version"
-    echo "Usage: $(basename "$0") OPTIONS [[--imgurl|--vm-nautilus] --vm APPVMNAME]"
-    echo "  -h | --help"
-    echo "  FIRST DIALOG OPTIONS:"
-    echo "  -r | --region-only"
-    echo "  --fullscreen"
-    echo "  --lastdialog"
-    echo "  SECOND DIALOG OPTIONS:"
-    echo "  --upload-to-appvm-only"
-    echo "  --imgurl (request -vm NAME)"
-    echo "  --vm-nautilus (request -vm NAME)"
-    echo "  --keep-screenshot-at-dom0"
-    echo "  SECOND DIALOG OPTIONS:"
-    echo "  -vm | --virtualmachine NAME"
-    exit 1
+  case "${screenshot_cmd}" in
+    spectacle)
+      case "${screenshot_type}" in
+        window) spectacle -a -o "${screenshot_file}";;
+        fullscreen) spectacle -f -o "${screenshot_file}";;
+        *) printf '%s\n' "Unsupported screenshot type" >&2; exit 1;;
+      esac
+      ;;
+    xfce4-screenshooter)
+      case "${screenshot_type}" in
+        window) xfce4-screenshooter -w -s "${screenshot_file}";;
+        fullscreen) xfce4-screenshooter -f -s "${screenshot_file}";;
+        *) printf '%s\n' "Unsupported screenshot type" >&2; exit 1;;
+      esac
+      ;;
+    scrot)
+      case "${screenshot_type}" in
+        window) scrot -s -b "${screenshot_file}";;
+        fullscreen) scrot -b "${screenshot_file}";;
+        *) printf '%s\n' "Unsupported screenshot type" >&2; exit 1;;
+      esac
+      ;;
+    maim)
+      case "${screenshot_type}" in
+        window) maim -s -o -u "${screenshot_file}";;
+        fullscreen) maim -o -u "${screenshot_file}";;
+        *) printf '%s\n' "Unsupported screenshot type" >&2; exit 1;;
+      esac
+      ;;
+    *) printf '%s\n' "Unsupported screenshot tool" >&2; exit 1;;
+  esac
 }
 
-
-write_last_action_config()
-{
-    touch "$LAST_ACTION_LOG_CONFIG"
-    cat <<EOF > "$LAST_ACTION_LOG_CONFIG"
-# last app vm used to upload image
-appvm=\"$appvm\"
-EOF
+print_help(){
+  # editorconfig-checker-disable
+  printf '%s\n' "Usage: ${0##*/} [OPTIONS]
+ -h, --help                  print this help message and exit
+Capture mode:
+ -r, --region                select only a region of the screen
+ -f, --fullscreen            select all the available screen
+File outcome:
+ -d, --qube NAME             qube to save screenshot
+ --qube-file-manager         open file manager in qube
+ --move                      move file instead of copy
+Development mode:
+ -D, --dialog-cmd           dialog tool: kdialog, zenity
+ -S, --screenshot-cmd       screenshot tool: maim, scrot, spectacle,
+                             xfce4-screenshooter"
+  # editorconfig-checker-enable
+  exit 1
 }
 
-read_last_action_config()
-{
+## Expand directory only in the qube.
+qube_pictures_dir="\$(xdg-user-dir PICTURES)"
+guivm_pictures_dir="$(xdg-user-dir PICTURES)"
+mkdir -p -- "${guivm_pictures_dir}" || exit 1
 
-# shellcheck disable=SC1090
-    [ -e "$LAST_ACTION_LOG_CONFIG" ] && source "$LAST_ACTION_LOG_CONFIG"
+current_date="$(date +"%Y-%m-%d-%H%M%S")"
+screenshot_basename="${current_date}.png"
+screenshot_file="${guivm_pictures_dir%*/}/${screenshot_basename}"
+qube_screenshot_file="${qube_pictures_dir}/${screenshot_basename}"
+screenshot_type_text=""
+screenshot_action_text=""
+screenshot_action_supplied=""
+qube=""
+exit_required=0
+file_manager=0
+file_move=0
+screenshot_cmd=""
+screenshot_cmd_wanted=""
+dialog_cmd=""
+dialog_cmd_wanted=""
 
-
-    if [ "$appvm" == "" ]; then
-        printf "Last action not available \n"
-        zenity --info --modal --text "Last action not available. Please, upload some image with this AppVM first." &>/dev/null
-        exit 1
-    fi
-
-    open_imgulr_upload_dialog_at_destination_appvm
-
-    exit 0
-}
-
-open_imgulr_upload_dialog_at_destination_appvm()
-{
-    qvm-run "$appvm" "zenity --text-info --width=500 --height=180 --modal --filename=\"$IMGURL_LOG\" --text Ready"
-}
-
-# check dependencies
-command -v zenity >/dev/null || {
-    warn="[FATAL] \"zenity\" tool not found."
-    printf "%s\n" "$warn"
-    exit 1
-}
-
-command -v display >/dev/null || {
-    warn="[EXIT] \"ImageMagic\" (display) not found."
-    zenity --info --modal --text "$warn" &>/dev/null
-    exit 1
-}
-
-start_ksnapshoot()
-{
-    PID="$(pgrep ksnapshot)"
-    if [ "$PID" == "" ]; then
-        ksnapshot &
-        sleep 1
-    fi
-    # setGrabMode notes: 0=full-screen, 1=window, 2=region
-    #kstart ksnapshot
-    #kdialog --radiolist "Now you can user Snapshot tool to make screenshots. When and only when you will be ready with screenshot (check preview area) click OKEY. Confirm only if you are ready!" READY READY READY --default continue --title "$program" --nograb --noxim
-    zenity --question --text "Move this window away and make screenshot. When you are ready to upload image click OK"
-
-    # while [ "$PID" == "" ]; do PID="$(pgrep -n ksnapshot)"; done
-
-    # ksnap pid changed after using region selection tool
-    PID="$(pgrep ksnapshot)"
-    program="org.kde.ksnapshot-${PID}"
-    qdbus "$program" /KSnapshot save "$2"
-    printf "[+] ksnapshot saved at: %s\n" "$2"
-    qdbus "$program" /KSnapshot exit
-}
-
-shotslist=""
-
-mkdir -p "$DOM0_SHOTS_DIR" ||exit 1
-d=$(date +"%Y-%m-%d-%H%M%S")
-shotname="$d.png"
-
-# check ksnapshoot exists
-ksnapshottxt="FALSE Ksnapshot"
-
-command -v ksnapshot >/dev/null || {
-    ksnapshottxt=""
-}
-
-# PROCESS COMMAND LINE ARGS
-ans=""
-anssecond=""
-appvm=""
-
-## GETTING OPTIONS START
-declare -a TEMPARR
-
-while [[ $# -gt 0 ]]; do
-    key="$1"
-    case "$key" in
-        -h|--help)
-            print_help
-            exit 1
-        ;;
-        -r|--region-only)
-            ans="Region or Window"
-        ;;
-        -f|--fullscreen)
-            ans="Fullscreen"
-        ;;
-        -l|--lastdialog)
-            ans="Open last dialog"
-        ;;
-        -vm|--vm|--virtualmachine)
-            shift
-            appvm="$1"
-        ;;
-        --upload-to-appvm-only)
-            TEMPARR=("${TEMPARR[@]}" "Upload to AppVM only")  # Add an element
-        ;;
-        --editscreenshot)
-            TEMPARR=("${TEMPARR[@]}" "Edit Screenshot")  # Add an element
-        ;;
-        --imgurl)
-            TEMPARR=("${TEMPARR[@]}" "Upload to Imgurl")  # Add an element
-        ;;
-        --vm-nautilus)
-            TEMPARR=("${TEMPARR[@]}" "Start Nautilus at AppVM")  # Add an element
-        ;;
-        --keep-screenshot-at-dom0)
-            TEMPARR=("${TEMPARR[@]}" "Keep screenshot at dom0")  # Add an element
-        ;;
-
-        ## This is an arg=value type option. Will catch -o=value or --output-file=value
-        ##-o=*|--output-file=*)
-        ## No need to shift here since the value is part of the same string
-        ##OUTPUTFILE="${key#*=}"
-        ##;;
-        *)
-            # Do whatever you want with extra options
-            echo "Unknown option '$key'"
-            exit 1
-        ;;
-    esac
-    # Shift after checking all the cases to get the next option
-    shift
+while test "$#" -gt 0; do
+  key="${1}"
+  case "${key}" in
+    -h|--help)
+      print_help
+      ;;
+    -r|--region)
+      screenshot_type_text="Region or Window"
+      ;;
+    -f|--fullscreen)
+      screenshot_type_text="Fullscreen"
+      ;;
+    -d|--qube)
+      shift
+      qube="${1}"
+      ;;
+    --qube-file-manager)
+      file_manager=1
+      screenshot_action_supplied="1"
+      ;;
+    --move)
+      file_move=1
+      screenshot_action_supplied="1"
+      ;;
+    -S|--screenshot-cmd)
+      shift
+      screenshot_cmd_wanted="${1}"
+      ;;
+    -D|--dialog-cmd)
+      shift
+      dialog_cmd_wanted="${1}"
+      ;;
+    *)
+      printf '%s\n' "Unknown option: ${key}"
+      exit 1
+    ;;
+  esac
+  shift
 done
 
-# implode an array with params
-anssecond="$(printf "%s)|(" "${TEMPARR[@]}")"
-anssecond="${anssecond%)|(}"
+if test -n "${dialog_cmd_wanted}"; then
+  if ! command -v "${dialog_cmd_wanted}" >/dev/null; then
+    msg="wanted dialog program not found: ${dialog_cmd_wanted}"
+    printf '%s\n' "[ERROR] ${msg}"
+    exit 1
+  fi
+  case "${dialog_cmd_wanted}" in
+    kdialog|zenity);;
+    *)
+      msg="wanted dialog program unsupported: ${dialog_cmd_wanted}"
+      printf '%s\n' "[ERROR] ${msg}"
+      exit 1
+      ;;
+  esac
+  dialog_cmd="${dialog_cmd_wanted}"
+else
+  if command -v kdialog >/dev/null; then
+    dialog_cmd="kdialog"
+  elif command -v zenity >/dev/null; then
+    dialog_cmd="zenity"
+  fi
+  if test -z "${dialog_cmd}"; then
+    printf '%s\n' "[ERROR] dialog programs not found: zenity kdialog"
+    exit 1
+  fi
+fi
 
-unset TEMPARR
-## GETTING OPTIONS END
+if test -n "${screenshot_cmd_wanted}"; then
+  if ! command -v "${screenshot_cmd_wanted}" >/dev/null; then
+    msg="wanted screenshot program not found: ${screenshot_cmd_wanted}"
+    printf '%s\n' "[ERROR] ${msg}"
+    case "${dialog_cmd}" in
+      zenity) zenity --info --text "${msg}";;
+      kdialog) kdialog --msgbox "${msg}";;
+      *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+    esac
+    exit 1
+  fi
+  case "${screenshot_cmd_wanted}" in
+    maim|scrot|spectacle|xfce4-screenshooter);;
+    *)
+      msg="wanted screenshot program unsupported: ${screenshot_cmd_wanted}"
+      printf '%s\n' "[ERROR] ${msg}"
+      exit 1
+      ;;
+  esac
+  screenshot_cmd="${screenshot_cmd_wanted}"
+else
+  if command -v maim >/dev/null; then
+    screenshot_cmd="maim"
+  elif command -v scrot >/dev/null; then
+    screenshot_cmd="scrot"
+  elif command -v spectacle >/dev/null; then
+    screenshot_cmd="spectacle"
+  elif command -v xfce4-screenshooter >/dev/null; then
+    screenshot_cmd="xfce4-screenshooter"
+  fi
+  if test -z "${screenshot_cmd}"; then
+    msg="screenshot programs not found"
+    msg="${msg}: spectacle xfce4-screenshooter scrot maim"
+    printf '%s\n' "[ERROR] ${msg}"
+    case "${dialog_cmd}" in
+      zenity) zenity --info --text "${msg}";;
+      kdialog) kdialog --msgbox "${msg}";;
+      *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+    esac
+    exit 1
+  fi
+fi
 
-# if [ "$1" = "--region-only" ] ; then
-#   ans="Region or Window"
-#   shift
-# elif [ "$1" = "--fullscreen" ]; then
-#   ans="Fullscreen"
-#   shift
-#fi
-
-if [ "$ans" = "" ] ; then
-    ans=$(zenity --list --modal --text "Choose capture mode of capturing \n Use:" --radiolist --column "Pick" --column "Option" \
-        $ksnapshottxt \
+if test -z "${screenshot_type_text}"; then
+  # shellcheck disable=SC2086
+  dialog_title="Select capture mode:"
+  case "${dialog_cmd}" in
+    zenity)
+      screenshot_type_text="$(zenity --list \
+        --text "${dialog_title}" \
+        --radiolist \
+        --column "Pick" --column "Mode" \
         TRUE "Region or Window" \
         FALSE "Fullscreen" \
-        FALSE "Open last dialog" \
-    )
+      )"
+      ;;
+    kdialog)
+      screenshot_type_text="$(kdialog --radiolist "${dialog_title}" \
+        "Region or Window" "Region or Window" off \
+        "Fullscreen" "Fullscreen" off \
+      )"
+      ;;
+    *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+  esac
 fi
 
-#   echo $ans
+case "${screenshot_type_text}" in
+  "Region or Window") take_screenshot window;;
+  "Fullscreen") take_screenshot fullscreen;;
+  *) printf '%s\n' "[ERROR] mode not selected"; exit 1;;
+esac
 
-error_fail() {
-    echo "[ERROR] Something has gone wrong and screenshot has not been saved at dom0."
-    zenity --info --modal --text "Something has gone wrong and screenshot has NOT been saved at dom0"
-}
-
-do_screenshot() {
-    local selection="$1"
-    local destination="$2"
-
-    if [ -n "$(command -v scrot 2> /dev/null)" ]; then
-        if [ "$selection" == "window" ]; then
-            scrot -s -b "$destination"
-        elif [ "$selection" == "fullscreen" ]; then
-            scrot -b "$destination"
-        fi
-    elif [ -n "$(command -v maim 2> /dev/null)" ]; then
-        if [ "$selection" == "window" ]; then
-            maim -s -u "$destination"
-        elif [ "$selection" == "fullscreen" ]; then
-            maim -u -o "$destination"
-        fi
-    else
-        msg="[EXIT] \"scrot\" or \"maim\" tools not found."
-        zenity --info --modal --text "$msg" &>/dev/null
-        exit 1
-    fi
-}
-
-trap error_fail ERR
-
-if [ "$ans" == "Ksnapshot" ]; then
-    printf "[+] starting ksnapshot..."
-    start_ksnapshoot 4 "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ "$ans" == "Region or Window" ]; then
-    echo "[+] capturing window, click on it to select"
-    do_screenshot window "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ "$ans" == "Fullscreen" ]; then
-    echo "[+] capturing fullscreen desktop"
-    do_screenshot fullscreen "$DOM0_SHOTS_DIR/$shotname" || exit 1
-elif [ "$ans" == "Open last dialog" ]; then
-    echo "[+] opening last dialog at AppVM with uploaded urls if exists"
-    read_last_action_config || exit 1
-    exit 1
-else
-    echo "You must select some mode to continue"
-    exit 1
+if ! test -f "${screenshot_file}"; then
+  msg="Screenshot was not saved in GuiVM"
+  printf '%s\n' "[ERROR] ${msg}"
+  case "${dialog_cmd}" in
+    zenity) zenity --warning --text "${msg}";;
+    kdialog) kdialog --sorry "${msg}";;
+    *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+  esac
+  exit 1
 fi
 
-if [ -f "$DOM0_SHOTS_DIR/$shotname" ]; then
-    echo "[+] Success at dom0. Screenshot saved at $DOM0_SHOTS_DIR/$shotname" || exit 1
-else
-    echo "[ERROR] Something has gone wrong and screenshot has not been saved at dom0."
-    zenity --info --modal --text "Something has gone wrong and screenshot has NOT been saved at dom0"
-    exit 12
-fi
+if test "${screenshot_action_supplied}" != "1"; then
+  dialog_title="Saved to ${screenshot_file}. What do you want to do with it?"
+  case "${dialog_cmd}" in
+    zenity)
+      screenshot_action_text="$(zenity --list --width=280 --height=210 \
+        --text "${dialog_title}" \
+        --separator="\n" \
+        --checklist --column "Pick" --column "Resolution" \
+        FALSE "Exit" \
+        FALSE "Open file manager in qube" \
+        FALSE "Move file"
+      )"
+      ;;
+    kdialog)
+      screenshot_action_text="$(kdialog --checklist "${dialog_title}" \
+        --separate-output \
+        "Exit" "Exit" off \
+        "Open file manager in qube" "Open file manager in qube" off \
+        "Move file" "Move file" off
+      )"
+      ;;
+    *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+  esac
 
-trap - ERR
-
-
-shotslist="$shotname"
-#shotslist="${shotslist}${shotname}:"
-
-if [ "$anssecond" = "" ] ; then
-    anssecond=$(zenity --list --modal --width=200 --height=290 --text "Screenshot saved at dom0 \nWhat do you want to do next?\nSelect or multiselect some options:" --checklist --column "Pick" --column "Options" \
-        FALSE Exit \
-        FALSE "Upload to AppVM only" \
-        FALSE "Edit Screenshot" \
-        FALSE "Upload to Imgurl" \
-        FALSE "Start Nautilus at AppVM" \
-        FALSE "Keep screenshot at dom0"
-        )
-fi
-#echo "xxx $anssecond xxx"
-
-[[ X"$anssecond" == X"" ]] && exit 1
-
-mode_exit=0
-mode_onlyupload=0
-mode_edit=0
-mode_nautilus=0
-mode_imgurl=0
-mode_not_delete_screen_at_dom=0
-
-IFSDEFAULT=$IFS
-IFS='|'; for val in $anssecond; do
-    #echo "variable: $val and $1"
-    case "$val" in
-        'Exit') mode_exit=1; ;;
-        'Upload to AppVM only') mode_onlyupload=1;  ;;
-        'Edit Screenshot') mode_edit=1;  ;;
-        'Upload to Imgurl') mode_imgurl=1;  ;;
-        'Start Nautilus at AppVM') mode_nautilus=1;  ;;
-        'Keep screenshot at dom0') mode_not_delete_screen_at_dom=1;  ;;
-        # -r) mode_region=1;  ;;
-        *) echo "Never Good Bye!"; exit 1 ;;
-    esac
-done
-
-if [ "$mode_exit" -eq 1 ]; then
+  if test -z "${screenshot_action_text}"; then
     exit 0
+  fi
+
+  IFSOLD="${IFS}"
+  IFS="|"
+  screenshot_action_text="$(printf '%s\n' "${screenshot_action_text}" | \
+    tr "\n" "|")"
+  for val in ${screenshot_action_text}; do
+    case "${val}" in
+      "Exit") exit_required=1;;
+      "Open file manager in qube") file_manager=1;;
+      "Move file") file_move=1;;
+      *) exit 1;;
+    esac
+  done
+  IFS="${IFSOLD}"
 fi
 
-# editing screenshot with IM
-if [ "$mode_edit" -eq 1 ]; then
-    echo "[-] editing screenshot started. Click on the image to get the edit menu. Use the tool. When you will be ready save the screenshot to predefined place. Then Exit from IM to continue"
-
-    echo "" > "$TEMPEDITORFILE"
-    display "$DOM0_SHOTS_DIR/$shotname"
-
-    # check if user save his image changes to special SAVE slot that we monitor
-    size=$(stat --printf="%s" "$TEMPEDITORFILE" )
-    # if [ $size -ge 20 ]; then
-    #   # user stored new image
-    # fi
-    if [ "$size" -ge 20 ]; then
-        # user stored new image
-        echo "[+] changed screenshot found. Continue with it"
-        mv "$TEMPEDITORFILE" "$DOM0_SHOTS_DIR/$shotname"
-    else
-        #clianup tempfile
-        rm "$TEMPEDITORFILE"
-    fi
-
-
-    sleep 1
-    echo "[-] thanks for editing. Now we continue."
+if test "${exit_required}" = "1"; then
+  exit 0
 fi
 
-if [ "$mode_edit" -eq 1 ]; then
-    echo "[+] Good Bye!"
+qube_list="$(qvm-ls --no-spinner --raw-data --fields=NAME,CLASS | \
+              awk -F "|" '$1 !~ /(^dvm-|-dvm$)/ &&
+                          $2 !~ /^(AdminVM|TemplateVM)$/{print $1}')"
+
+if test -z "${qube}"; then
+  dialog_title="Select destination qube (Unix based):"
+  case "${dialog_cmd}" in
+    zenity)
+      qube_list="$(printf '%s\n' "${qube_list}" | sed -e "s/^/FALSE /")"
+      # shellcheck disable=SC2086
+      qube="$(zenity --list  --width=200 --height=390 \
+              --text "${dialog_title}" \
+              --radiolist --column "Pick" --column "qube" ${qube_list})"
+      ;;
+    kdialog)
+      qube_list="$(printf '%s\n' "${qube_list}" | \
+        sed -e "s/\(.*\)/\1 \1 off/")"
+      # shellcheck disable=SC2086
+      qube="$(kdialog --radiolist "${dialog_title}" ${qube_list})"
+      ;;
+    *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+  esac
+  if test -z "${qube}"; then
+    msg="qube was not selected"
+    printf '%s\n' "[ERROR] ${msg}"
+    case "${dialog_cmd}" in
+      zenity) zenity --error --text "${msg}";;
+      kdialog) kdialog --error "${msg}";;
+      *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+    esac
+    exit 1
+  fi
 fi
 
-IFS=$IFSDEFAULT
-choiceappvm=$(qvm-ls --raw-list |sed 's/\([^ ]*\)/FALSE \1 /g')
-#appvm=`kdialog --radiolist "Select destination AppVM" $choice --title "$program"`
-if [ "$appvm" = "" ] ; then
-    # shellcheck disable=SC2086
-    appvm=$(zenity --list --modal  --width=200 --height=390  --text "Select destination AppVM (unix based):" --radiolist --column "Pick" --column "AppVM" $choiceappvm)
-fi
-#echo $appvm
-
-if [ X"$appvm" != X"" ]; then
-
-echo "[-] start AppVM: $appvm"
-
-qvm-run "$appvm" "mkdir -p \"$APPVM_SHOTS_DIR\""
-
-shot=$shotslist
-
-echo "[-] copying screenshot to \"$APPVM_SHOTS_DIR\"/$shot"
-qvm-run --pass-io "$appvm" "cat > \"$APPVM_SHOTS_DIR/$shot\"" < "$DOM0_SHOTS_DIR/$shot"
-
-[[ $mode_not_delete_screen_at_dom -eq 0 ]] && rm -f "$DOM0_SHOTS_DIR/$shot" && echo "[+] Screen at dom0 deleted $DOM0_SHOTS_DIR/$shot"
-
-if [ $mode_nautilus -eq 1 ]; then
-    echo "[-] running nautilus in AppVM"
-    qvm-run "$appvm" "nautilus \"$APPVM_SHOTS_DIR\""
+if ! qvm-check -- "${qube}" >/dev/null 2>&1; then
+  msg="qube doesn't exist: ${qube}"
+  printf '%s\n' "[ERROR] ${msg}"
+  case "${dialog_cmd}" in
+    zenity) zenity --error --text "${msg}";;
+    kdialog) kdialog --error "${msg}";;
+    *) printf '%s\n' "Unsupported dialog command" >&2; exit 1;;
+  esac
+  exit 1
 fi
 
-[[ $mode_onlyupload -eq 1 ]] && exit 1
+qvm-run "${qube}" -- "mkdir -p -- \"${qube_pictures_dir}\""
+qvm-run --pass-io "${qube}" -- "cat > \"${qube_screenshot_file}\"" \
+  < "${screenshot_file}"
 
-
-[[ $mode_imgurl -eq 0 ]] && exit 1
-
-echo "[-] copying imgurl uploader to AppVM $appvm"
-#      echo $UPLOADHELPER \
-#          | qvm-run --pass-io $appvm "echo $UPLOADHELPER > $APPVM_SHOTS_DIR/autouplodertemp.sh"
-uploadername='evauploadermgur.sh'
-echo "$UPLOADHELPER" | qvm-run --pass-io "$appvm" "cat > \"$APPVM_SHOTS_DIR/$uploadername\""
-qvm-run "$appvm" "chmod +x \"$APPVM_SHOTS_DIR/$uploadername\""
-qvm-run --pass-io "$appvm" "$APPVM_SHOTS_DIR/$uploadername \"$APPVM_SHOTS_DIR/$shot\" \"$IMGURL_LOG\""
-qvm-run "$appvm" "rm \"$APPVM_SHOTS_DIR/$uploadername\""
-#qvm-run $appvm "gedit \"$IMGURL_LOG\""
-
-open_imgulr_upload_dialog_at_destination_appvm
-
-# write AppVM name and log file at AppVM to the dom0 config to open it again
-write_last_action_config
-
-#done
-else
-    echo "[-] no AppVM name provided"
+if test "${file_move}" = "1"; then
+  rm -f -- "${screenshot_file}"
 fi
 
-echo "[*] Dom0 say Good Bye"
+if test "${file_manager}" = "1"; then
+  qvm-run "${qube}" -- "xdg-open \"${qube_pictures_dir}\""
+fi
