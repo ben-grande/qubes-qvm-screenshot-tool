@@ -17,7 +17,7 @@ Requires: zenity
 
 %description
 Take screenshot in Qubes Dom0, auto copy to AppVM, upload to imgurl service
-Dependencies: scrot at dom0 (sudo qubes-dom0-update scrot) 
+Dependencies: scrot at dom0 (sudo qubes-dom0-update scrot)
 zenity at dom0 and at AppVM (already exists by default at fedora and dom0)
 
 %prep
@@ -31,6 +31,7 @@ zenity at dom0 and at AppVM (already exists by default at fedora and dom0)
 %files
 %doc README.md
 %license LICENSE
+%{_bindir}/qvm-screenshot
 %{_bindir}/qvm-screenshot-tool
 
 
