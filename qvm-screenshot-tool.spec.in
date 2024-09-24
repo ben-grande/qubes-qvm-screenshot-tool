@@ -8,17 +8,12 @@ URL:     https://github.com/QubesOS-contrib/qvm-screenshot-tool
 Source0: %{name}-%{version}.tar.gz
 
 BuildRequires: make
-%if 0%{?fedora} == 25
-Requires: scrot
-%else
 Requires: maim
-%endif
 Requires: zenity
 
 %description
-Take screenshot in Qubes Dom0, auto copy to AppVM, upload to imgurl service
-Dependencies: scrot at dom0 (sudo qubes-dom0-update scrot)
-zenity at dom0 and at AppVM (already exists by default at fedora and dom0)
+Take screenshot in Qubes Dom0, copy or move to qube and optionally open
+file manager in the target qube.
 
 %prep
 %setup -q
