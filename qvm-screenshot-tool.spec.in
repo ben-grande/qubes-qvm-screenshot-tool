@@ -12,8 +12,8 @@ Requires: maim
 Requires: zenity
 
 %description
-Take screenshot in Qubes Dom0, copy or move to qube and optionally open
-file manager in the target qube.
+Take screenshot in Qubes Dom0, optional to copy/move to qube and open file
+manager in the target.
 
 %prep
 %setup -q
