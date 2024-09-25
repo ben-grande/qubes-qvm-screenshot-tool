@@ -5,5 +5,5 @@ help:
 
 install:
 	install -D qvm-screenshot $(DESTDIR)/usr/bin/qvm-screenshot
-	ln -sf $(DESTDIR)/usr/bin/qvm-screenshot $(DESTDIR)/usr/bin/qvm-screenshot-tool
+	ln -sf qvm-screenshot $(DESTDIR)/usr/bin/qvm-screenshot-tool
 	VERSION=$(shell cat version); sed -i "s/@VERSION@/$$VERSION/" $(DESTDIR)/usr/bin/qvm-screenshot
