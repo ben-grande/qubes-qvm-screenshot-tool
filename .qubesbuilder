@@ -1,0 +1,5 @@
+---
+host:
+  rpm:
+    build:
+      - qvm-screenshot-tool.spec
