@@ -8,7 +8,7 @@ manager in the target.
 ## Features
 
 * Modes: `fullscreen`, `window` or `region`
-* Screenshot programs: `scrot`, `maim`, `xfce4-screenshooter`, spectacle
+* Screenshot programs: `scrot`, `maim`, `xfce4-screenshooter`, `spectacle`
 * Dialog programs: `zenity`, `kdialog`
 * Destiny: open file manager in qube
 * Targets: type the qube name to find it when using `kdialog`
@@ -24,6 +24,12 @@ DomUs which have Qrexec support:
 * Windows: when Qubes Windows Tools is installed
 
 ## Installation
+
+**WARNING**: Please note the following installation instructions are not
+working as the package has not been added to
+[upstream yet](https://github.com/qubesos/qubes-issues/issues/953). The
+[qvm-screenshot](qvm-screenshot) program should be copied to your `GuiVM`
+manually.
 
 Add the contributed packages repository:
 
